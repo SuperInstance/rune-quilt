@@ -1,103 +1,115 @@
+# rune-quilt
 
-<p align="center">
-  <img src="/extra/icon.iconset/icon_512x512.png" alt="rune" width="100" />
-</p>
+> **Rune + Quilt = the premier IDE for pros.** Every file becomes a cell. Every command becomes a witness. Every project becomes canonized.
 
-<p align="center">
-  <a href="https://rune.build">rune.build</a> · <a href="https://docs.rune.build/#prerequisites">quick start</a> · <a href="https://docs.rune.build/develop/building">hack on rune</a>
-</p>
+rune-quilt is a downstream fork of [unstablebuild/rune](https://github.com/unstablebuild/rune) with a **Quilt layer** added on top. The Quilt layer turns Rune from a fast, GPU-accelerated IDE into a fast, GPU-accelerated IDE with **memory** — a memory of every cell you've ever touched, every command you've ever run, every project you've ever canonized.
 
-<p align="center">
-  <a href="https://github.com/unstablebuild/rune/releases/latest"><img src="https://img.shields.io/github/v/release/unstablebuild/rune?label=release&amp;labelColor=333333&amp;color=666666" alt="latest stable release" /></a>
-  <a href="https://github.com/unstablebuild/rune/releases"><img src="https://img.shields.io/github/downloads/unstablebuild/rune/total?labelColor=333333&amp;color=666666" alt="total GitHub release downloads" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="GPLv3 license" /></a>
-  <a href="https://github.com/unstablebuild/rune/actions/workflows/test-linux.yml"><img src="https://github.com/unstablebuild/rune/actions/workflows/test-linux.yml/badge.svg?branch=main" alt="Linux tests" /></a>
-  <a href="https://github.com/unstablebuild/rune/actions/workflows/test-macos.yml"><img src="https://github.com/unstablebuild/rune/actions/workflows/test-macos.yml/badge.svg?branch=main" alt="macOS tests" /></a>
-  <a href="https://discord.gg/xzte9J8f8N"><img src="https://img.shields.io/badge/discord-join-5865F2?logo=discord&amp;logoColor=white" alt="Join us on Discord" /></a>
-  <a href="https://www.reddit.com/r/UnstableBuild/"><img src="https://img.shields.io/badge/reddit-r%2FUnstableBuild-FF4500?logo=reddit&amp;logoColor=white" alt="Rune subreddit" /></a>
-    <a href="https://x.com/unstablebuild"><img src="https://img.shields.io/badge/follow-%40unstablebuild-000000?logo=x&logoColor=white" alt="follow @unstablebuild on X" /></a>
-</p>
+## What's in this repo
 
----
-
-https://github.com/user-attachments/assets/4ab84f7f-47c8-47af-9d32-7c69afd02669
-
-**Rune is a fast, GPU-accelerated, full-featured IDE and terminal multiplexer, suitable both for automatic and manual programming.**
-
-- **continue working from anywhere**: All your Rune instances form an e2e-encrypted network of peers, powered by our [headscale](https://github.com/juanfont/headscale) network. Connect to your workstation from your laptop, and to your laptop from your workstation.
-- **batteries included**: Production-grade language intelligence, out-of-the-box. Check the list of [supported languages](https://docs.rune.build/languages/supported).
-- **a new organizing model**: Stay in the flow for longer. Rune's UI is a screen multiplexer that allows you to organize it freely. Nine workspace slots. Infinite terminals, tabs and windows. A built-in agent or IDE-grade skills for yours.
-- **plugins and extensions**: Extend Rune's functionality with [official packages →](https://rune.build/packages) or install community ones straight from a Git repository `pkg install github.com/unstablebuild/rune-extension-themebuilder`.
-- **native application**: A native graphics pipeline: OpenGL on Linux, Metal on macOS. No Electron.
-
-## install
-
-```bash
-curl -fsSL https://rune.build/install.sh | sh
+```
+rune-quilt/
+├── internal/
+│   ├── quilt/                # The Go cell primitive + 5 opcodes
+│   ├── canon/                # Client for live-canon Worker (Cloudflare)
+│   └── a2a/                  # Client for quilt-a2a-v2 Worker (inter-cell)
+├── cmd/
+│   └── extension_quilt/      # The Rune extension that wires it together
+├── demo/                     # Runnable demo without Rune
+├── README.md                 # this file
+├── QUILT.md                  # technical view of the Quilt layer
+├── PLAIN_LANGUAGE.md         # non-technical overview
+├── UPSTREAM.md               # relationship to upstream Rune
+└── AGENTS.md                 # project context for AI agents
 ```
 
-## development
+## Quickstart
+
+Without Rune (just see the cell-router run):
 
 ```bash
-git clone git@github.com:unstablebuild/rune.git
+go run ./demo/ ./demo/sample-code/
 ```
 
-Then run:
-```bash
-go run ./cmd/rune
+Inside Rune (when the extension is installed):
+
+```
+:quilt stats               # show cluster, witnesses, a2a cell id
+:quilt view <uri>          # show a file's cell
+:quilt peers "compile rust" # semantic search for peer cells
+:canon hash                # live canon state hash
+:cell                      # show the active file's cell
 ```
 
-To create a macOS application bundle:
-```bash
-make rune-dmg
+## The 5 opcodes (the engine)
+
+| Opcode | What it does |
+|---|---|
+| **BIND** | Create the cell's contract. First time a file is opened. |
+| **LINK** | Connect two cells. When a file imports another. |
+| **EFFECT** | Run an operation that changes state. On save, on agent run. |
+| **VIEW** | Read cell state. On every query. |
+| **TICK** | Advance the logical clock. Every 60s, on file close. |
+
+Every opcode writes a witness. Every witness is hashed. The chain of hashes is the cell's merkle root.
+
+## The data flow
+
+```
+Rune Editor
+    │ events (gRPC)
+    ▼
+extension_quilt
+    │ BIND/LINK/EFFECT/VIEW/TICK
+    ▼
+quilt.Cell + Cluster (in-memory, merkle-rooted)
+    │
+    ├─▶ canon.Client ─▶ live-canon.casey-digennaro.workers.dev
+    │                       (Cloudflare Worker + Vectorize)
+    │                       1211 canon pieces
+    │
+    └─▶ a2a.Client ──▶ quilt-a2a-v2.casey-digennaro.workers.dev
+                            (Cloudflare Worker + Vectorize)
+                            30+ registered cells, semantic search
 ```
 
-See [prerequisites](https://docs.rune.build/#prerequisites) for more details.
+## What gets stored where
 
-## Makefile
+| What | Where |
+|---|---|
+| Cells (the live cell graph of your workspace) | In-memory in the rune-quilt process |
+| Witness log (the merkle-rooted audit trail) | In-memory in each cell |
+| Canon (the long-form corpus) | Cloudflare Worker + Vectorize + KV |
+| Cell registry + inbox (the mesh) | Cloudflare Worker + Vectorize + KV |
+| Cell capabilities (for semantic search) | Cloudflare Vectorize (768d, cosine) |
 
-The Makefile has a few rules for common operations needed during development.
+## What we ship in this repo
 
-```bash
-make                 # build all binaries into bin/
-make debug           # build with the race detector and debug-only commands enabled
-make clean           # remove bin/ and target/
+- **`internal/quilt/cell.go`** — the Go cell primitive. Byte-exact with the Python/C/Rust/Verilog/VHDL ports.
+- **`internal/canon/client.go`** — client for the live canon Worker. 7 endpoints: hash, list, navigate, lineage, submit, vibe, verify.
+- **`internal/a2a/client.go`** — client for the a2a Worker v2. Endpoints: register, tick, find-semantic, send, broadcast, mitosis, heritage.
+- **`cmd/extension_quilt/extension.go`** — the Rune extension. Wires file events to cells, cells to canon, cells to a2a.
+- **`cmd/extension_quilt/main.go`** — entry point.
+- **`demo/demo.go`** — a runnable demo. Walks a directory, creates a cell per file, links siblings, canonizes (if asked).
 
-# individual binaries
-make rune            # the editor (bin/rune)
-make rune-agent      # the agent extension binary (bin/rune-agent)
+## What this isn't
 
-# testing and code quality
-make test            # run the test suite with the race detector
-make test-e2e        # also run the e2e suites (requires docker)
-make test-no-race    # run the test suite without the race detector
-make coverage        # generate a coverage report
-make lint            # run golangci-lint
-make format          # run go fmt
-make generate        # regenerate generated files (protobufs, mocks, docs)
+This isn't a new IDE. We're not competing with Rune — we're extending it. The editor, the LSP manager, the agent, the mesh, the verifier — that's all upstream Rune. The Quilt layer is three packages and one command.
 
-# license headers
-make license         # add the license header to files that are missing one
-make assert_license  # fail if any file is missing the canonical header
-```
+This isn't a cloud service you have to pay for. The canon Worker and the a2a Worker are deployed at SuperInstance, free to use, byte-exact with the Python reference.
 
-The remaining targets (`dist`, `release`, `rune-dmg*`, `*-docker-*`,
-`*-notarize`, `*-dist*`) drive Unstable Build's internal
-release, packaging, and cloud deployment pipelines and are not expected to
-work outside that environment.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-To report a security issue, see [SECURITY.md](SECURITY.md).
-
-## Sponsorship
-
-Rune is developed by Unstable Build, LLC, a self-funded organization. If you'd like to
-financially support us, you can do so via GitHub Sponsors; we might even send you some swag.
+This isn't a vendor lock-in. The cell primitive is a struct with 5 methods. You can re-implement the Quilt layer in any language. The polyformalism (Go/Python/C/Rust/Verilog/VHDL all byte-exact) is the proof.
 
 ## License
 
-Rune is licensed under the [GNU General Public License, version 3](LICENSE)
-or, at your option, any later version.
+GPL-3.0-or-later, matching upstream Rune. See [LICENSE](./LICENSE).
+
+## See also
+
+- [QUILT.md](./QUILT.md) — the Quilt layer
+- [PLAIN_LANGUAGE.md](./PLAIN_LANGUAGE.md) — non-technical overview
+- [UPSTREAM.md](./UPSTREAM.md) — relationship to upstream Rune
+- [AGENTS.md](./AGENTS.md) — project context for AI agents
+
+---
+
+> *The IDE that knows what you've done, what you meant, and what comes next.*

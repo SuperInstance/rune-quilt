@@ -4,6 +4,15 @@ workspace:
     show: once
 
 extensions:
-  rune-agent:
+  rune-quilt:
     config:
-      force_builtin_tools: true
+      cell_id: "auto"
+      role: "cell-router"
+      capabilities:
+        - file-to-cell
+        - canon-query
+        - canon-shape
+        - witness-log
+        - polyformal-ports
+      canon_url: "https://live-canon.casey-digennaro.workers.dev"
+      a2a_url: "https://quilt-a2a-v2.casey-digennaro.workers.dev"

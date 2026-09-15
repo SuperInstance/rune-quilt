@@ -1,3 +1,76 @@
+# AGENTS.md — Project context for AI agents
+
+This is **rune-quilt**: a downstream fork of [unstablebuild/rune](https://github.com/unstablebuild/rune) with a **Quilt layer** added.
+
+## Read these first
+
+Before doing anything, read these three docs in order:
+
+1. **[PLAIN_LANGUAGE.md](./PLAIN_LANGUAGE.md)** — what rune-quilt is, in plain English
+2. **[QUILT.md](./QUILT.md)** — the technical view of the Quilt layer
+3. **[UPSTREAM.md](./UPSTREAM.md)** — the relationship to upstream Rune
+
+## The 5 opcodes
+
+The Quilt engine is 5 operations: BIND, LINK, EFFECT, VIEW, TICK.
+Every cell runs them. In rune-quilt, they fire automatically on file events.
+
+## The 3 layers
+
+```
+internal/quilt/    — the cell primitive (Go port, byte-exact with Python)
+internal/canon/    — client for live-canon Worker (Cloudflare)
+internal/a2a/      — client for quilt-a2a-v2 Worker (inter-cell)
+```
+
+## The extension
+
+```
+cmd/extension_quilt/
+  ├── main.go       — entry point
+  └── extension.go  — event handlers, commands, lifecycle
+```
+
+The extension registers 4 commands with Rune: `quilt`, `cell`, `canon`, `peers`.
+
+## The demo
+
+```
+demo/
+  ├── demo.go               — runnable demo (no Rune needed)
+  └── sample-code/          — example files to canonize
+```
+
+Run: `go run ./demo/ ./demo/sample-code/`
+
+## Where NOT to change things
+
+We do not modify:
+- `cmd/rune/` (the editor)
+- `cmd/rune-agent/` (the AI agent)
+- `internal/term/`, `internal/text/`, `internal/ide/`
+- `internal/extension/` (the extension system)
+- `internal/runenet/` (the mesh)
+
+The Quilt layer plugs in via `internal/quilt/`, `internal/canon/`, `internal/a2a/`, and `cmd/extension_quilt/`.
+
+## Common commands
+
+```bash
+go build ./internal/quilt/        # builds the cell primitive
+go build ./internal/canon/        # builds the canon client
+go build ./internal/a2a/          # builds the a2a client
+go build -o /tmp/demo ./demo/     # builds the demo
+go run ./demo/ ./demo/sample-code/  # runs the demo
+```
+
+## License
+
+GPL-3.0-or-later. Use the `LICENSE_HEADER` template at the top of every new `.go` file.
+---
+
+# Original Rune AGENTS.md (for context)
+
 # AGENTS.md
 
 This file provides project instructions for coding agents working in this repository.
