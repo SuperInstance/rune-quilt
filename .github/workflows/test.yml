@@ -1,0 +1,39 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: test (go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.25.6', '1.26.6']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test (with coverage)
+        run: |
+          go test -count=1 -race -coverprofile=coverage.out ./internal/... ./test/...
+          go tool cover -func=coverage.out | tail -1
+
+      - name: Test short (no stress)
+        run: go test -short -count=1 ./...
+
+      - name: Demo smoke
+        run: |
+          go build -o /tmp/demo ./demo/
+          /tmp/demo /tmp | head -10

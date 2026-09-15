@@ -296,3 +296,70 @@ func hexDigit(b byte) byte {
 	}
 	return 'A' + b - 10
 }
+
+// ── v3: workspace federation ─────────────────────────────────────
+
+// Workspace is a single workspace entry returned by /workspaces.
+type Workspace struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// WorkspacesResult is the response from GET /workspaces.
+type WorkspacesResult struct {
+	OK             bool        `json:"ok"`
+	WorkspaceCount int         `json:"workspace_count"`
+	TotalCells     int         `json:"total_cells"`
+	Workspaces     []Workspace `json:"workspaces"`
+}
+
+// Workspaces lists all workspaces + their cell counts.
+func (c *Client) Workspaces(ctx context.Context) (*WorkspacesResult, error) {
+	var out WorkspacesResult
+	if err := c.get(ctx, "/workspaces", &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PeersNearResult is the response from GET /peers/near.
+type PeersNearResult struct {
+	OK        bool   `json:"ok"`
+	CellID    string `json:"cell_id"`
+	Workspace string `json:"workspace"`
+	PeerCount int    `json:"peer_count"`
+	Peers     []Cell `json:"peers"`
+}
+
+// PeersNear finds cells in the same workspace as the given cell.
+func (c *Client) PeersNear(ctx context.Context, cellID string) (*PeersNearResult, error) {
+	path := "/peers/near?cell_id=" + urlEncode(cellID)
+	var out PeersNearResult
+	if err := c.get(ctx, path, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// BroadcastEditResult is the response from POST /broadcast-edit.
+type BroadcastEditResult struct {
+	OK           bool     `json:"ok"`
+	Workspace    string   `json:"workspace"`
+	Recipients   int      `json:"recipients"`
+	RecipientIDs []string `json:"recipient_ids"`
+}
+
+// BroadcastEdit broadcasts a file-edit notification to all peers in the same workspace.
+func (c *Client) BroadcastEdit(ctx context.Context, workspace, file, op string) (*BroadcastEditResult, error) {
+	body, _ := json.Marshal(map[string]interface{}{
+		"from":      c.CellID,
+		"workspace": workspace,
+		"file":      file,
+		"op":        op,
+	})
+	var out BroadcastEditResult
+	if err := c.post(ctx, "/broadcast-edit", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

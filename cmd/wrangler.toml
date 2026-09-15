@@ -1,0 +1,11 @@
+name = "quilt-a2a-v3"
+main = "a2a_worker_v3.js"
+compatibility_date = "2024-09-23"
+
+[[kv_namespaces]]
+binding = "CELL_WITNESS_KV"
+id = "f1882454a316494ebd8b9a75fe7856df"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "fleet-embeddings-v2"

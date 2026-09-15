@@ -202,8 +202,16 @@ func (c *Client) Vibe(ctx context.Context, req VibeRequest) (*VibeResponse, erro
 }
 
 func (c *Client) get(ctx context.Context, path string, out interface{}) error {
-	u := c.Base + path
-	if path[0] != '/' && !bytes.HasPrefix([]byte(path), []byte("http")) {
+	var u string
+	switch {
+	case bytes.HasPrefix([]byte(path), []byte("http")):
+		// already a full URL
+		u = path
+	case path[0] == '/':
+		// absolute path — just prepend Base
+		u = c.Base + path
+	default:
+		// relative path — prepend Base + "/"
 		u = c.Base + "/" + path
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
