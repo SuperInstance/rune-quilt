@@ -1,10 +1,15 @@
 // a2a_worker_v3.js — Quilt a2a-protocol v3 with multi-workspace federation
 //
 // v1.3.0 additions:
-//   GET  /landscape       — long-form public canon page (text-only)
-//   GET  /canon-list      — list all canon pieces
-//   GET  /canon-search    — semantic search over all canon papers (48 indexed)
-//   POST /canon-submit    — embed + store canon piece via Workers AI
+//   GET  /landscape         — long-form public canon page (text-only)
+//   GET  /canon-list        — list all canon pieces
+//   GET  /canon-search      — semantic search over all canon papers (48 indexed)
+//   POST /canon-submit      — embed + store canon piece via Workers AI
+//   GET  /canon-b1          — live circuit rank b1 = E - V + C
+//   GET  /canon-b1-per-workspace — b1 per inferred workspace tag
+//   GET  /canon-graph       — full adjacency list
+//   GET  /canon-trending    — most-recent submissions
+//   GET  /canon-theme       — filter pieces by theme keyword set (e.g. divergent-economies)
 //
 // Adds over v2:
 //   POST /broadcast-edit    — semantic broadcast of file changes to peers in same workspace
@@ -416,7 +421,7 @@ export default {
             "/broadcast-edit", "/peers/near", "/workspaces",
             "/visual", "/visual/graph.json", "/landscape",
             "/canon-search", "/canon-list", "/canon-submit", "/canon-b1",
-            "/canon-b1-per-workspace", "/canon-graph", "/canon-trending"
+            "/canon-b1-per-workspace", "/canon-graph", "/canon-trending", "/canon-theme"
           ],
         }, cors);
       }
@@ -537,6 +542,39 @@ export default {
         }
         pieces.sort((a, b) => (b.submitted_at || 0) - (a.submitted_at || 0));
         return json({ ok: true, count: pieces.length, pieces }, cors);
+      }
+
+      if (path === "/canon-theme" && method === "GET") {
+        // GET /canon-theme?theme=divergent-economies — filter canon pieces whose title
+        // or first 800 chars of text contains theme keywords. Case-insensitive.
+        const url = new URL(request.url);
+        const theme = (url.searchParams.get("theme") || "").toLowerCase().trim();
+        if (!theme) {
+          return json({ ok: false, err: "missing ?theme=" }, cors);
+        }
+        // Map known themes → keyword sets
+        const themes = {
+          "divergent-economies": ["three harbors", "city that banned", "salt road", "silver road",
+            "city of the ledger", "city of the hearth", "twin ports", "allopatry", "canon drift",
+            "divergent", "parallel evolution", "city-level", "economies developing"],
+          "canon-as-island": ["allopatry", "canon drift", "island biogeography", "isthmus",
+            "bridge essay", "two islands"],
+          "the-cell": ["cell-as-boat", "witness log", "merkle root", "cell router", "fleet as fishing"],
+        };
+        const kws = themes[theme] || theme.split(/[\s,]+/);
+        const keys = await env.CELL_WITNESS_KV.list({ prefix: "canon:meta:" });
+        const pieces = [];
+        for (const k of keys.keys) {
+          const raw = await env.CELL_WITNESS_KV.get(k.name);
+          if (!raw) continue;
+          const p = JSON.parse(raw);
+          const hay = ((p.title || "") + " " + (p.text || "").slice(0, 800)).toLowerCase();
+          if (kws.some(kw => hay.includes(kw.toLowerCase()))) {
+            pieces.push(p);
+          }
+        }
+        pieces.sort((a, b) => (b.submitted_at || 0) - (a.submitted_at || 0));
+        return json({ ok: true, theme, keywords: kws, count: pieces.length, pieces }, cors);
       }
 
       if (path === "/canon-submit" && method === "POST") {
