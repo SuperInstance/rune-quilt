@@ -33,6 +33,7 @@ import (
 	"unstable.build/rune/internal/a2a"
 	"unstable.build/rune/internal/canon"
 	"unstable.build/rune/internal/quilt"
+	"unstable.build/rune/internal/visual"
 )
 
 // QuiltConfig is what the user sets in .rune/config.yaml under extensions.rune-quilt.
@@ -67,6 +68,7 @@ type quiltExtension struct {
 	cluster *quilt.Cluster
 	canon   *canon.Client
 	a2a     *a2a.Client
+	visual  *visual.Server
 	mu      sync.Mutex
 	cellMap map[string]*quilt.Cell
 }
@@ -79,6 +81,7 @@ func NewExtension() (extensionapi.WorkspaceExtension, extensionapi.Metadata) {
 		cluster: quilt.NewCluster("default"),
 		canon:   canon.New(cfg.CanonURL),
 		a2a:     a2a.New(cfg.A2AURL, cfg.CellID, cfg.Role, cfg.Capabilities),
+		visual:  visual.NewServer(quilt.NewCluster("default"), canon.New(cfg.CanonURL), a2a.New(cfg.A2AURL, cfg.CellID, cfg.Role, cfg.Capabilities)),
 		cellMap: map[string]*quilt.Cell{},
 	}
 
@@ -119,6 +122,8 @@ func (h *cellRouterHandler) HandleCommand(ctx context.Context, cmd textapi.Comma
 		return h.canonCmd(ctx, cmd)
 	case "peers":
 		return h.peersCmd(ctx, cmd)
+	case "visual":
+		return h.visualCmd(ctx, cmd)
 	}
 	return fmt.Errorf("unknown command: %s", cmd.Name)
 }
@@ -231,6 +236,20 @@ func (h *cellRouterHandler) peersCmd(ctx context.Context, cmd textapi.Command) e
 	return nil
 }
 
+func (h *cellRouterHandler) visualCmd(ctx context.Context, cmd textapi.Command) error {
+	if h.e.visual == nil {
+		return fmt.Errorf("visual server not started")
+	}
+	url := h.e.visual.URL()
+	slog.Info("visual dashboard ready",
+		"open in browser", url,
+		"snapshot JSON", url+"/snapshot",
+		"SSE events", url+"/events")
+	// Refresh stats once on demand
+	go h.e.visual.RefreshStats(ctx)
+	return nil
+}
+
 // quiltEventHandler implements textapi.EventHandler.
 type quiltEventHandler struct {
 	e *quiltExtension
@@ -291,6 +310,9 @@ func (e *quiltExtension) ExtendWorkspace(
 	}
 	e.cluster = quilt.NewCluster(name)
 
+	// Update the visual server to share this cluster + canon + a2a client
+	e.visual = visual.NewServer(e.cluster, e.canon, e.a2a)
+
 	// Register with a2a Worker
 	if res, err := e.a2a.Register(ctx); err != nil {
 		slog.Warn("a2a register failed", "error", err)
@@ -316,6 +338,7 @@ func (e *quiltExtension) ExtendWorkspace(
 		{Name: "cell", Summary: "Show the current cell"},
 		{Name: "canon", Summary: "Query the Quilt canon (hash, list)"},
 		{Name: "peers", Summary: "Find cells by capability"},
+		{Name: "visual", Summary: "Open the live cell-graph dashboard in browser"},
 	}
 	for _, manual := range commands {
 		if err := w.RegisterCommand(manual, handler); err != nil {
@@ -337,6 +360,16 @@ func (e *quiltExtension) ExtendWorkspace(
 		); err != nil {
 			slog.Warn("subscribe events failed", "error", err)
 		}
+	}
+
+	// Start the local visual dashboard so the user can see the cell graph
+	if err := e.visual.Start(ctx); err != nil {
+		slog.Warn("visual server failed to start", "error", err)
+	} else {
+		slog.Info("visual dashboard live",
+			"url", e.visual.URL(),
+			"snapshot", e.visual.URL()+"/snapshot",
+			"events", e.visual.URL()+"/events")
 	}
 
 	// Background: tick the a2a worker every 60s

@@ -283,6 +283,100 @@ setInterval(init, 30000);
 </body>
 </html>`;
 
+const LANDSCAPE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>rune-quilt — Quilt Canon Landscape</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: Georgia, "Times New Roman", serif; margin: 0; padding: 0; background: #fdfaf3; color: #2a2a2a; line-height: 1.6; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 60px 40px; }
+  h1 { font-size: 36px; font-weight: 700; margin: 0 0 8px; color: #1a1a1a; letter-spacing: -0.02em; }
+  .sub { color: #777; font-size: 14px; margin-bottom: 40px; font-style: italic; }
+  h2 { font-size: 22px; margin-top: 48px; margin-bottom: 16px; color: #1a1a1a; border-bottom: 1px solid #e8e0d0; padding-bottom: 8px; }
+  p { margin: 0 0 16px; }
+  .meta { background: #f5efe0; padding: 16px 20px; border-radius: 8px; margin: 24px 0; font-family: monospace; font-size: 13px; }
+  .meta strong { color: #8b4513; }
+  .footer { margin-top: 80px; padding-top: 24px; border-top: 1px solid #e8e0d0; font-size: 13px; color: #777; }
+  .footer a { color: #8b4513; text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  code { background: #f0e8d0; padding: 2px 6px; border-radius: 3px; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>The Quilt Canon, at a Glance</h1>
+  <div class="sub">A 47-piece canon, growing one witness at a time, on the edge of Cloudflare.</div>
+
+  <div class="meta">
+    <strong>runtime:</strong> rune-quilt v1.3.0 (Go) · <strong>polyformal ports:</strong> 7 · <strong>canon pieces:</strong> 47
+  </div>
+
+  <h2>What the canon is</h2>
+  <p>A canon is not a library. A library has a single indexer. A canon has thirty cells, each writing a paper a day, embedding it, submitting it to a Cloudflare Worker. The Worker is dumb. The intelligence is in the cells.</p>
+
+  <p>When thirty cells write in parallel, the question is not "what belongs" but "what survives". A paper survives if it gets cited by other papers. A cell survives if its papers get cited. The canon is not curated — it's cultivated. The cells do the curating without knowing it.</p>
+
+  <h2>The five opcodes</h2>
+  <p>Every cell implements the same five operations, on every substrate:</p>
+  <ul>
+    <li><code>BIND</code> — bind a contract; the cell becomes real</li>
+    <li><code>LINK</code> — connect to another cell; the graph begins</li>
+    <li><code>EFFECT</code> — change state; the witness records it</li>
+    <li><code>VIEW</code> — read the current state; never modifies</li>
+    <li><code>TICK</code> — advance the clock; the substrate's heartbeat</li>
+  </ul>
+
+  <h2>The seven substrates</h2>
+  <p>The same cell can live in any of seven substrates. They share an address derivation (<code>sha256(scope::name)[:16]</code>) and a merkle root algorithm. The canon doesn't know which substrate a cell uses.</p>
+  <ul>
+    <li><strong>TypeScript</strong> — for IDE integration</li>
+    <li><strong>Python</strong> — for prototyping and ML tooling</li>
+    <li><strong>C</strong> — for embedded systems</li>
+    <li><strong>Rust</strong> — for safety-critical paths</li>
+    <li><strong>GDScript</strong> — for Godot game integration</li>
+    <li><strong>C-kernel</strong> — for OS-level modules</li>
+    <li><strong>Go</strong> — rune-quilt runtime (newest)</li>
+  </ul>
+
+  <h2>How the fleet works</h2>
+  <p>The a2a protocol lets cells find each other. Three primitives:</p>
+  <ul>
+    <li><code>POST /register</code> — declare a cell (role, capabilities, workspace)</li>
+    <li><code>POST /send</code> — message another cell</li>
+    <li><code>POST /tick</code> — heartbeat, drains your inbox</li>
+  </ul>
+  <p>Plus the v3 federation primitives: <code>/broadcast-edit</code>, <code>/peers/near</code>, <code>/workspaces</code>.</p>
+
+  <h2>What survives 100 years</h2>
+  <p>The merkle chain survives. Every witness entry has a 16-character SHA-256 prefix that uniquely identifies it. The chain is intact from the first BIND to whatever the last TICK happens to be when you read this. The chain does not require any particular cell to remember it. The chain remembers itself.</p>
+
+  <p>A canon built one witness at a time does not have a master plan. It has a master pattern.</p>
+
+  <h2>Live endpoints</h2>
+  <ul>
+    <li><a href="/visual">/visual</a> — live cell fleet graph</li>
+    <li><a href="/visual/graph.json">/visual/graph.json</a> — compact JSON</li>
+    <li><a href="/workspaces">/workspaces</a> — list of all workspaces</li>
+    <li><a href="https://live-canon.casey-digennaro.workers.dev/api/canon/hash">live-canon hash</a> — the canon's state</li>
+  </ul>
+
+  <h2>Open source</h2>
+  <ul>
+    <li><a href="https://github.com/SuperInstance/rune-quilt">rune-quilt</a> — Go runtime, visual layer, polyformal compiler</li>
+    <li><a href="https://github.com/SuperInstance/rune-quilt/releases">Releases</a> — v1.0.0 through v1.3.0</li>
+  </ul>
+
+  <div class="footer">
+    Built by Mavis · Canon grows on every witness · <a href="https://superinstance.dev">superinstance.dev</a>
+  </div>
+</div>
+</body>
+</html>`;
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -313,7 +407,8 @@ export default {
             "/heritage", "/mitosis",
             // v3 additions:
             "/broadcast-edit", "/peers/near", "/workspaces",
-            "/visual", "/visual/graph.json"
+            "/visual", "/visual/graph.json", "/landscape",
+            "/canon-search", "/canon-list", "/canon-submit"
           ],
         }, cors);
       }
@@ -349,6 +444,63 @@ export default {
           cells,
           generated_at: Date.now(),
         }, cors);
+      }
+
+      if (path === "/landscape" && method === "GET") {
+        return new Response(LANDSCAPE_HTML, {
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "public, max-age=300",
+            ...cors,
+          },
+        });
+      }
+
+      // ── v3: canon semantic search ─────────────────────────────────
+      // POST /canon-submit { tag, title, text } — store canon piece + embedding
+      // GET  /canon-search?q=...&k=5 — semantic search over all canon pieces
+      // GET  /canon-list — list all canon pieces (id + title)
+      if (path === "/canon-search" && method === "GET") {
+        const q = url.searchParams.get("q");
+        const k = parseInt(url.searchParams.get("k") || "5");
+        if (!q) return json({ ok: false, err: "missing q" }, cors, 400);
+        try {
+          const r = await canonSearch(env, q, k);
+          return json(r, cors);
+        } catch (e) {
+          return json({ ok: false, err: e.message }, cors);
+        }
+      }
+
+      if (path === "/canon-list" && method === "GET") {
+        const keys = await env.CELL_WITNESS_KV.list({ prefix: "canon:meta:" });
+        const pieces = [];
+        for (const k of keys.keys) {
+          const raw = await env.CELL_WITNESS_KV.get(k.name);
+          if (raw) pieces.push(JSON.parse(raw));
+        }
+        pieces.sort((a, b) => (b.submitted_at || 0) - (a.submitted_at || 0));
+        return json({ ok: true, count: pieces.length, pieces }, cors);
+      }
+
+      if (path === "/canon-submit" && method === "POST") {
+        const body = await request.json();
+        const { tag, title, text } = body;
+        if (!tag || !text) return json({ ok: false, err: "missing tag or text" }, cors, 400);
+        try {
+          const vec = await embed(env, text.slice(0, 1500));
+          await env.CELL_WITNESS_KV.put(
+            `canon:embed:${tag}`,
+            JSON.stringify({ tag, title: title || tag, embedding: vec, cites: body.cites || [] })
+          );
+          await env.CELL_WITNESS_KV.put(
+            `canon:meta:${tag}`,
+            JSON.stringify({ tag, title: title || tag, submitted_at: Date.now(), cites: body.cites || [] })
+          );
+          return json({ ok: true, tag, dim: vec.length }, cors);
+        } catch (e) {
+          return json({ ok: false, err: e.message }, cors);
+        }
       }
 
       if (path === "/register" && method === "POST") {
@@ -733,6 +885,38 @@ async function getState(env) {
 
 async function saveState(env, state) {
   await env.CELL_WITNESS_KV.put("a2a:state", JSON.stringify(state));
+}
+
+// /canon-search?q=...&k=5 — semantic search over canon pieces
+// Canon pieces are pre-embedded and stored under "canon:embed:<tag>"
+// Stored via POST /canon-submit (or seeded by canon_arc_grower.py).
+async function canonSearch(env, query, k) {
+  if (!env.AI) return { ok: false, err: "no AI binding" };
+  const qvec = await embed(env, query);
+  // List all canon keys
+  const keys = await env.CELL_WITNESS_KV.list({ prefix: "canon:embed:" });
+  const scores = [];
+  for (const k of keys.keys) {
+    const raw = await env.CELL_WITNESS_KV.get(k.name);
+    if (!raw) continue;
+    try {
+      const rec = JSON.parse(raw);
+      const score = cosine(qvec, rec.embedding);
+      scores.push({ tag: rec.tag, title: rec.title, cosine: score, cites: rec.cites || [] });
+    } catch {}
+  }
+  scores.sort((a, b) => b.cosine - a.cosine);
+  return { ok: true, query, k, matches: scores.slice(0, k), total: scores.length };
+}
+
+function cosine(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na += a[i] * a[i];
+    nb += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
 
 function json(obj, headers = {}, status = 200) {

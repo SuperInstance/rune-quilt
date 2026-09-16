@@ -78,7 +78,20 @@ func liftC(c *Cell) (string, error) {
 // liftRust — Rust port.
 func liftRust(c *Cell) (string, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "// Auto-generated from IR\n")
+	fmt.Fprintf(&b, "// Auto-generated from IR\n\n")
+	fmt.Fprintf(&b, "#[derive(Debug, Clone)]\n")
+	fmt.Fprintf(&b, "pub struct Witness {\n")
+	fmt.Fprintf(&b, "    pub op: &'static str,\n")
+	fmt.Fprintf(&b, "    pub ts: i64,\n")
+	fmt.Fprintf(&b, "    pub root: &'static str,\n")
+	fmt.Fprintf(&b, "}\n\n")
+	fmt.Fprintf(&b, "#[derive(Debug, Clone)]\n")
+	fmt.Fprintf(&b, "pub struct CanonCell {\n")
+	fmt.Fprintf(&b, "    pub name: &'static str,\n")
+	fmt.Fprintf(&b, "    pub scope: &'static str,\n")
+	fmt.Fprintf(&b, "    pub witness_count: usize,\n")
+	fmt.Fprintf(&b, "    pub witnesses: &'static [Witness],\n")
+	fmt.Fprintf(&b, "}\n\n")
 	fmt.Fprintf(&b, "pub const CANON_%s_%s: CanonCell = CanonCell {\n",
 		sanitize(c.Scope), sanitize(c.Name))
 	fmt.Fprintf(&b, "    name: %q,\n    scope: %q,\n", c.Name, c.Scope)
@@ -95,11 +108,12 @@ func liftRust(c *Cell) (string, error) {
 // liftGDScript — Godot port.
 func liftGDScript(c *Cell) (string, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Auto-generated from IR\n")
-	fmt.Fprintf(&b, "extends RefCounted\nclass_name CanonCell_%s_%s\n\n",
+	fmt.Fprintf(&b, "# Auto-generated from IR\n\n")
+	fmt.Fprintf(&b, "class_name CanonCell%s%s\n\n",
 		sanitize(c.Scope), sanitize(c.Name))
 	fmt.Fprintf(&b, "var name_: String = %q\n", c.Name)
 	fmt.Fprintf(&b, "var scope_: String = %q\n", c.Scope)
+	fmt.Fprintf(&b, "var witness_count: int = %d\n", len(c.Witnesses))
 	fmt.Fprintf(&b, "var witnesses: Array = [\n")
 	for _, w := range c.Witnesses {
 		fmt.Fprintf(&b, "    {\"op\": %q, \"ts\": %d, \"root\": %q},\n",
@@ -112,17 +126,34 @@ func liftGDScript(c *Cell) (string, error) {
 // liftKernel — C-kernel (kernel module) port — minimal, no stdlib.
 func liftKernel(c *Cell) (string, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "/* Auto-generated from IR — kernel module */\n")
+	fmt.Fprintf(&b, "/* Auto-generated from IR — kernel module */\n\n")
 	fmt.Fprintf(&b, "struct canon_witness_%s_%s {\n",
 		sanitize(c.Scope), sanitize(c.Name))
-	fmt.Fprintf(&b, "    char op[16];\n    uint64_t ts;\n    char root[17];\n")
+	fmt.Fprintf(&b, "    char op[16];\n    unsigned long ts;\n    char root[17];\n")
 	fmt.Fprintf(&b, "};\n\n")
-	fmt.Fprintf(&b, "static const struct canon_witness_%s_%s WITNESSES[%d] = {\n",
-		sanitize(c.Scope), sanitize(c.Name), len(c.Witnesses))
+	fmt.Fprintf(&b, "struct canon_cell_%s_%s {\n",
+		sanitize(c.Scope), sanitize(c.Name))
+	fmt.Fprintf(&b, "    const char *name;\n")
+	fmt.Fprintf(&b, "    const char *scope;\n")
+	fmt.Fprintf(&b, "    unsigned int witness_count;\n")
+	fmt.Fprintf(&b, "    const struct canon_witness_%s_%s *witnesses;\n",
+		sanitize(c.Scope), sanitize(c.Name))
+	fmt.Fprintf(&b, "};\n\n")
+	fmt.Fprintf(&b, "static const struct canon_witness_%s_%s _WITNESSES_%s_%s[%d] = {\n",
+		sanitize(c.Scope), sanitize(c.Name),
+		sanitize(c.Scope), sanitize(c.Name),
+		len(c.Witnesses))
 	for _, w := range c.Witnesses {
 		fmt.Fprintf(&b, "    {\"%s\", %d, \"%s\"},\n",
 			string(w.Op), w.Ts, w.Root)
 	}
+	fmt.Fprintf(&b, "};\n\n")
+	fmt.Fprintf(&b, "static const struct canon_cell_%s_%s CANON_%s_%s = {\n",
+		sanitize(c.Scope), sanitize(c.Name),
+		sanitize(c.Scope), sanitize(c.Name))
+	fmt.Fprintf(&b, "    %q, %q, %d, _WITNESSES_%s_%s,\n",
+		c.Name, c.Scope, len(c.Witnesses),
+		sanitize(c.Scope), sanitize(c.Name))
 	fmt.Fprintf(&b, "};\n")
 	return b.String(), nil
 }
