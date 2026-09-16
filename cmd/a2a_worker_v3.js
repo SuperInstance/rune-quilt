@@ -406,6 +406,7 @@ export default {
           features: ["v2-protocol", "vectorize-semantic-search", "cell-heritage", "workspace-federation"],
           cells: Object.keys(state.cells).length,
           workspaces: countWorkspaces(state),
+          workspaces_detail: workspaceBreakdown(state),
           messages_pending: Object.values(state.messages).reduce((a, b) => a + b.length, 0),
           endpoints: [
             "/register", "/cells", "/send", "/inbox/:cell", "/broadcast",
@@ -875,6 +876,18 @@ function countWorkspaces(state) {
   return set.size;
 }
 
+// /workspaces_detail: [{ name, count }] sorted by count desc
+function workspaceBreakdown(state) {
+  const counts = {};
+  for (const c of Object.values(state.cells)) {
+    const ws = c.workspace || "(default)";
+    counts[ws] = (counts[ws] || 0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
 function buildCellText(cell) {
   return [
     `Cell ${cell.cell_id} (${cell.role})`,
@@ -991,12 +1004,34 @@ async function canonB1(env) {
   const C = roots.size;
   const b1 = Math.max(0, E - V + C);
 
+  // Citation-graph analytics
+  const indegree = {};   // how many times a piece is cited
+  const outdegree = {};  // how many pieces a piece cites
+  for (const p of pieces) {
+    if (p.cites && p.cites.length > 0) outdegree[p.tag] = p.cites.length;
+  }
+  for (const e of edges) {
+    indegree[e.to] = (indegree[e.to] || 0) + 1;
+  }
+  const orphans = pieces.length - V;  // pieces with no cites-in or cites-out
+  const topCited = Object.entries(indegree)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([tag, count]) => ({ tag, cited_by: count }));
+  const topCiting = Object.entries(outdegree)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([tag, count]) => ({ tag, cites: count }));
+
   return {
     ok: true,
     V, E, C, b1,
     pieces_total: pieces.length,
     pieces_with_cites: pieces.filter(p => p.cites && p.cites.length > 0).length,
-    edges_sample: edges.slice(0, 10),
+    orphan_pieces: orphans,
+    top_cited: topCited,
+    top_citing: topCiting,
+    edges_sample: edges.slice(0, 5),
     formula: "b1 = E - V + C",
     inspired_by: "twist-engine QUILT mode (see QUILT_NOTES.md)",
     computed_at: Date.now(),
