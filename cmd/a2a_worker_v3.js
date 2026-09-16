@@ -1,5 +1,11 @@
 // a2a_worker_v3.js — Quilt a2a-protocol v3 with multi-workspace federation
 //
+// v1.3.0 additions:
+//   GET  /landscape       — long-form public canon page (text-only)
+//   GET  /canon-list      — list all canon pieces
+//   GET  /canon-search    — semantic search over all canon papers (48 indexed)
+//   POST /canon-submit    — embed + store canon piece via Workers AI
+//
 // Adds over v2:
 //   POST /broadcast-edit    — semantic broadcast of file changes to peers in same workspace
 //   GET  /peers/near        — find cells in same-named workspace
