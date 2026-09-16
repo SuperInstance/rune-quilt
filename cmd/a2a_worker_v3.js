@@ -415,7 +415,8 @@ export default {
             // v3 additions:
             "/broadcast-edit", "/peers/near", "/workspaces",
             "/visual", "/visual/graph.json", "/landscape",
-            "/canon-search", "/canon-list", "/canon-submit", "/canon-b1"
+            "/canon-search", "/canon-list", "/canon-submit", "/canon-b1",
+            "/canon-b1-per-workspace", "/canon-graph", "/canon-trending"
           ],
         }, cors);
       }
@@ -468,9 +469,47 @@ export default {
       // GET  /canon-search?q=...&k=5 — semantic search over all canon pieces
       // GET  /canon-list — list all canon pieces (id + title)
       // GET  /canon-b1 — compute live circuit rank of the citation graph
+      // GET  /canon-b1-per-workspace — same but per-workspace breakdown
+      // GET  /canon-graph — full adjacency list
       if (path === "/canon-b1" && method === "GET") {
         try {
           const r = await canonB1(env);
+          return json(r, cors);
+        } catch (e) {
+          return json({ ok: false, err: e.message }, cors);
+        }
+      }
+
+      if (path === "/canon-trending" && method === "GET") {
+        // Most-recently-submitted pieces (recent activity)
+        const since = parseInt(url.searchParams.get("since_ms") || "0");
+        const limit = parseInt(url.searchParams.get("limit") || "10");
+        const keys = await env.CELL_WITNESS_KV.list({ prefix: "canon:meta:" });
+        const all = [];
+        for (const k of keys.keys) {
+          const raw = await env.CELL_WITNESS_KV.get(k.name);
+          if (!raw) continue;
+          try { all.push(JSON.parse(raw)); } catch {}
+        }
+        const recent = all
+          .filter(p => (p.submitted_at || 0) >= since)
+          .sort((a, b) => (b.submitted_at || 0) - (a.submitted_at || 0))
+          .slice(0, limit);
+        return json({ ok: true, count: recent.length, since, pieces: recent }, cors);
+      }
+
+      if (path === "/canon-b1-per-workspace" && method === "GET") {
+        try {
+          const r = await canonB1PerWorkspace(env);
+          return json(r, cors);
+        } catch (e) {
+          return json({ ok: false, err: e.message }, cors);
+        }
+      }
+
+      if (path === "/canon-graph" && method === "GET") {
+        try {
+          const r = await canonGraph(env);
           return json(r, cors);
         } catch (e) {
           return json({ ok: false, err: e.message }, cors);
@@ -502,6 +541,33 @@ export default {
 
       if (path === "/canon-submit" && method === "POST") {
         const body = await request.json();
+        // Batch: array of pieces
+        if (Array.isArray(body)) {
+          const results = [];
+          for (const piece of body) {
+            if (!piece.tag || !piece.text) {
+              results.push({ tag: piece.tag, ok: false, err: "missing tag or text" });
+              continue;
+            }
+            try {
+              const vec = await embed(env, piece.text.slice(0, 1500));
+              await env.CELL_WITNESS_KV.put(
+                `canon:embed:${piece.tag}`,
+                JSON.stringify({ tag: piece.tag, title: piece.title || piece.tag, embedding: vec, cites: piece.cites || [] })
+              );
+              await env.CELL_WITNESS_KV.put(
+                `canon:meta:${piece.tag}`,
+                JSON.stringify({ tag: piece.tag, title: piece.title || piece.tag, submitted_at: Date.now(), cites: piece.cites || [] })
+              );
+              results.push({ tag: piece.tag, ok: true });
+            } catch (e) {
+              results.push({ tag: piece.tag, ok: false, err: e.message });
+            }
+          }
+          const ok_count = results.filter(r => r.ok).length;
+          return json({ ok: true, batch_size: body.length, succeeded: ok_count, results }, cors);
+        }
+        // Single piece
         const { tag, title, text } = body;
         if (!tag || !text) return json({ ok: false, err: "missing tag or text" }, cors, 400);
         try {
@@ -1034,6 +1100,137 @@ async function canonB1(env) {
     edges_sample: edges.slice(0, 5),
     formula: "b1 = E - V + C",
     inspired_by: "twist-engine QUILT mode (see QUILT_NOTES.md)",
+    computed_at: Date.now(),
+  };
+}
+
+// /canon-b1-per-workspace — b1 broken down by canonical workspace tag
+// A "workspace" here is a top-level grouping inferred from the tag prefix
+// (e.g. "shape/cell-substrate" -> workspace="shape")
+async function canonB1PerWorkspace(env) {
+  if (!env.CELL_WITNESS_KV) return { ok: false, err: "no KV binding" };
+  const keys = await env.CELL_WITNESS_KV.list({ prefix: "canon:meta:" });
+  const pieces = [];
+  for (const k of keys.keys) {
+    const raw = await env.CELL_WITNESS_KV.get(k.name);
+    if (!raw) continue;
+    try { pieces.push(JSON.parse(raw)); } catch {}
+  }
+
+  // Group pieces by workspace (top-level tag prefix)
+  const workspaceOf = (tag) => {
+    if (!tag) return "other";
+    if (tag.startsWith("auto-")) return "auto";
+    if (tag.startsWith("bridge-from-")) return "bridges";
+    if (tag.startsWith("paper_")) return "papers";
+    if (tag.startsWith("essay_")) return "essays";
+    if (tag.startsWith("essay-")) return "essays";
+    if (tag.startsWith("self-description")) return "self";
+    if (tag.startsWith("the-") || tag.startsWith("what-") ||
+        tag.startsWith("how-") || tag.startsWith("anchor/") ||
+        tag.startsWith("meta/") || tag.startsWith("shape/") ||
+        tag.startsWith("early/") || tag.startsWith("time/")) {
+      return "topical";
+    }
+    if (tag.startsWith("taps-")) return "taps";
+    if (tag.startsWith("grow-")) return "grown";
+    if (tag.startsWith("agentic-genre/")) return "agentic";
+    return "other";
+  };
+
+  const groups = {};
+  for (const p of pieces) {
+    const ws = workspaceOf(p.tag);
+    if (!groups[ws]) groups[ws] = [];
+    groups[ws].push(p);
+  }
+
+  // For each workspace, compute b1 over its own subgraph
+  const results = [];
+  for (const ws of Object.keys(groups).sort()) {
+    const wsPieces = groups[ws];
+    const tagsSet = new Set(wsPieces.map(p => p.tag));
+    const parent = new Map();
+    for (const p of wsPieces) parent.set(p.tag, p.tag);
+    const find = (a) => {
+      while (parent.get(a) !== a) {
+        parent.set(a, parent.get(parent.get(a)));
+        a = parent.get(a);
+      }
+      return a;
+    };
+    const union = (a, b) => {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent.set(ra, rb);
+    };
+
+    const participating = new Set();
+    let E = 0;
+    for (const p of wsPieces) {
+      if (!p.cites || p.cites.length === 0) continue;
+      participating.add(p.tag);
+      for (const c of p.cites) {
+        const target = c.split("  #")[0].trim();
+        // Only count intra-workspace edges (this is the per-workspace b1)
+        if (tagsSet.has(target)) {
+          participating.add(target);
+          E++;
+          union(p.tag, target);
+        }
+      }
+    }
+    const V = participating.size;
+    const roots = new Set();
+    for (const t of participating) roots.add(find(t));
+    const C = roots.size;
+    const b1 = Math.max(0, E - V + C);
+
+    results.push({
+      workspace: ws,
+      pieces: wsPieces.length,
+      V, E, C, b1,
+      intra_workspace_citations: E,
+    });
+  }
+
+  return {
+    ok: true,
+    formula: "b1 = E - V + C (per workspace, intra-workspace edges only)",
+    workspaces: results,
+    computed_at: Date.now(),
+  };
+}
+
+// /canon-graph — full adjacency list
+async function canonGraph(env) {
+  if (!env.CELL_WITNESS_KV) return { ok: false, err: "no KV binding" };
+  const keys = await env.CELL_WITNESS_KV.list({ prefix: "canon:meta:" });
+  const pieces = [];
+  for (const k of keys.keys) {
+    const raw = await env.CELL_WITNESS_KV.get(k.name);
+    if (!raw) continue;
+    try { pieces.push(JSON.parse(raw)); } catch {}
+  }
+
+  const nodes = pieces.map(p => ({ id: p.tag, title: p.title || p.tag, cites: p.cites || [] }));
+  const edges = [];
+  const tags = new Set(pieces.map(p => p.tag));
+  for (const p of pieces) {
+    if (!p.cites) continue;
+    for (const c of p.cites) {
+      const target = c.split("  #")[0].trim();
+      if (tags.has(target)) {
+        edges.push({ source: p.tag, target });
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    node_count: nodes.length,
+    edge_count: edges.length,
+    nodes,
+    edges,
     computed_at: Date.now(),
   };
 }
