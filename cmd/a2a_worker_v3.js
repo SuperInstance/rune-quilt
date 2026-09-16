@@ -414,7 +414,7 @@ export default {
             // v3 additions:
             "/broadcast-edit", "/peers/near", "/workspaces",
             "/visual", "/visual/graph.json", "/landscape",
-            "/canon-search", "/canon-list", "/canon-submit"
+            "/canon-search", "/canon-list", "/canon-submit", "/canon-b1"
           ],
         }, cors);
       }
@@ -466,6 +466,16 @@ export default {
       // POST /canon-submit { tag, title, text } — store canon piece + embedding
       // GET  /canon-search?q=...&k=5 — semantic search over all canon pieces
       // GET  /canon-list — list all canon pieces (id + title)
+      // GET  /canon-b1 — compute live circuit rank of the citation graph
+      if (path === "/canon-b1" && method === "GET") {
+        try {
+          const r = await canonB1(env);
+          return json(r, cors);
+        } catch (e) {
+          return json({ ok: false, err: e.message }, cors);
+        }
+      }
+
       if (path === "/canon-search" && method === "GET") {
         const q = url.searchParams.get("q");
         const k = parseInt(url.searchParams.get("k") || "5");
@@ -923,6 +933,74 @@ function cosine(a, b) {
     nb += b[i] * b[i];
   }
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+// /canon-b1 — compute the live circuit rank of the canon's citation graph
+// b1 = E - V + C, the first Betti number, the number of independent holes.
+// Same math as the QUILT mode in twist-engine (see QUILT_NOTES.md).
+// V = vertices (canon pieces with at least one cite or being cited)
+// E = edges (cite relationships in the front-matter)
+// C = connected components (union-find)
+async function canonB1(env) {
+  if (!env.CELL_WITNESS_KV) return { ok: false, err: "no KV binding" };
+  const keys = await env.CELL_WITNESS_KV.list({ prefix: "canon:meta:" });
+  const pieces = [];
+  for (const k of keys.keys) {
+    const raw = await env.CELL_WITNESS_KV.get(k.name);
+    if (!raw) continue;
+    try { pieces.push(JSON.parse(raw)); } catch {}
+  }
+
+  // Build the graph
+  const tags = new Set(pieces.map(p => p.tag));
+  let V = 0, E = 0;
+  const parent = new Map();
+  for (const p of pieces) parent.set(p.tag, p.tag);
+  const find = (a) => {
+    while (parent.get(a) !== a) {
+      parent.set(a, parent.get(parent.get(a)));
+      a = parent.get(a);
+    }
+    return a;
+  };
+  const union = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  // V counts pieces that participate in the graph (cite or are cited)
+  const participating = new Set();
+  const edges = [];
+  for (const p of pieces) {
+    if (!p.cites || p.cites.length === 0) continue;
+    participating.add(p.tag);
+    for (const c of p.cites) {
+      // Strip cosine comments if any
+      const target = c.split("  #")[0].trim();
+      if (tags.has(target)) {
+        participating.add(target);
+        E++;
+        edges.push({ from: p.tag, to: target });
+        union(p.tag, target);
+      }
+    }
+  }
+  V = participating.size;
+  const roots = new Set();
+  for (const t of participating) roots.add(find(t));
+  const C = roots.size;
+  const b1 = Math.max(0, E - V + C);
+
+  return {
+    ok: true,
+    V, E, C, b1,
+    pieces_total: pieces.length,
+    pieces_with_cites: pieces.filter(p => p.cites && p.cites.length > 0).length,
+    edges_sample: edges.slice(0, 10),
+    formula: "b1 = E - V + C",
+    inspired_by: "twist-engine QUILT mode (see QUILT_NOTES.md)",
+    computed_at: Date.now(),
+  };
 }
 
 function json(obj, headers = {}, status = 200) {
