@@ -4,11 +4,284 @@
 //   POST /broadcast-edit    — semantic broadcast of file changes to peers in same workspace
 //   GET  /peers/near        — find cells in same-named workspace
 //   GET  /workspaces        — list all workspaces in fleet
+//   GET  /visual            — public fleet-graph HTML dashboard
+//   GET  /visual/graph.json — compact cell + workspace JSON
 //   POST /register          — now accepts `workspace` field for federation
 //
 // Storage:
 //   KV:       CELL_WITNESS_KV → cell registry + inboxes + workspace index
 //   Vectorize: fleet-embeddings-v2 → 768d vectors per cell
+
+const VISUAL_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>rune-quilt — Public Cell Graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; margin: 0; padding: 0; background: #0a0e14; color: #c9d1d9; min-height: 100vh; }
+  .header { padding: 24px 40px; background: linear-gradient(180deg, #161b22 0%, #0d1117 100%); border-bottom: 1px solid #30363d; }
+  .header h1 { margin: 0 0 8px; font-size: 28px; font-weight: 600; color: #f0f6fc; letter-spacing: -0.02em; }
+  .header .meta { color: #8b949e; font-size: 14px; }
+  .header .meta a { color: #58a6ff; text-decoration: none; }
+  .stats { display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap; }
+  .stat { background: rgba(177,186,196,0.1); border: 1px solid #30363d; padding: 8px 16px; border-radius: 20px; font-size: 14px; }
+  .stat strong { color: #58a6ff; font-weight: 600; font-size: 16px; }
+  .legend { padding: 12px 40px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 14px; height: 14px; border-radius: 50%; }
+  .layout { display: grid; grid-template-columns: 1fr 380px; gap: 0; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .graph-container { height: calc(100vh - 220px); position: relative; background: radial-gradient(ellipse at center, #0d1117 0%, #010409 100%); min-height: 500px; }
+  svg { width: 100%; height: 100%; cursor: grab; }
+  svg:active { cursor: grabbing; }
+  .node circle { stroke: #30363d; stroke-width: 1.5; transition: all 0.2s; }
+  .node:hover circle { stroke: #58a6ff; stroke-width: 2.5; }
+  .node text { fill: #c9d1d9; font-size: 10px; font-family: monospace; pointer-events: none; }
+  .edge { stroke: #30363d; stroke-width: 1; opacity: 0.4; }
+  .tooltip { position: absolute; background: #161b22; border: 1px solid #58a6ff; padding: 12px 16px; border-radius: 6px; pointer-events: none; font-size: 13px; max-width: 360px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); display: none; z-index: 10; }
+  .tooltip h3 { margin: 0 0 8px; color: #58a6ff; font-size: 15px; }
+  .tooltip .caps { color: #8b949e; margin-top: 8px; }
+  .tooltip .cap { display: inline-block; background: rgba(88,166,255,0.15); color: #58a6ff; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin: 2px; }
+  .sidebar { height: calc(100vh - 220px); overflow-y: auto; background: #0d1117; border-left: 1px solid #30363d; min-height: 500px; }
+  .sidebar h2 { margin: 0; padding: 16px 20px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: #8b949e; border-bottom: 1px solid #30363d; position: sticky; top: 0; background: #0d1117; z-index: 5; }
+  .cell-card { padding: 14px 20px; border-bottom: 1px solid #21262d; }
+  .cell-card h3 { margin: 0 0 4px; font-size: 13px; color: #f0f6fc; font-family: monospace; }
+  .cell-card .role { font-size: 11px; color: #58a6ff; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+  .cell-card .meta { font-size: 11px; color: #8b949e; }
+  .loading { display: flex; align-items: center; justify-content: center; height: 200px; color: #8b949e; }
+  .footer { padding: 16px 40px; background: #0d1117; border-top: 1px solid #30363d; text-align: center; font-size: 12px; color: #8b949e; }
+  .footer a { color: #58a6ff; text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>rune-quilt — Public Cell Graph</h1>
+  <div class="meta">
+    Live cell fleet · a2a v3 Worker · Updated <span id="updated">—</span>
+  </div>
+  <div class="stats" id="stats"><div class="stat">Loading fleet…</div></div>
+</div>
+<div class="legend" id="legend"></div>
+<div class="layout">
+  <div class="graph-container">
+    <svg id="graph"></svg>
+    <div class="tooltip" id="tip"></div>
+  </div>
+  <div class="sidebar">
+    <h2>Cells (<span id="cellTotal">0</span>)</h2>
+    <div id="cellList" class="loading">Loading…</div>
+  </div>
+</div>
+<div class="footer">
+  Built by rune-quilt v1.1.0 · Each cell is a merkle-rooted witness log on the edge ·
+  Powered by Cloudflare Workers + Vectorize
+</div>
+<script>
+const A2A_URL = "https://a2a-v3.superinstance.dev";
+let nodes = [];
+let edges = [];
+let pos = new Map();
+let vel = new Map();
+let svg, alpha = 1;
+
+async function init() {
+  try {
+    const r = await fetch(A2A_URL + "/visual/graph.json");
+    const data = await r.json();
+    nodes = data.cells || [];
+    edges = buildEdges(nodes);
+    document.getElementById("updated").textContent = new Date().toLocaleTimeString();
+    renderStats(data);
+    renderLegend();
+    renderSidebar(data);
+    layoutGraph();
+    drawGraph();
+  } catch (e) {
+    document.getElementById("cellList").innerHTML =
+      '<div class="loading">Failed to load fleet: ' + e.message + '</div>';
+  }
+}
+
+function buildEdges(cells) {
+  // Build parent-of edges from parent_id lineage + same-workspace edges
+  const e = [];
+  const byParent = {};
+  for (const c of cells) {
+    if (c.parent) {
+      e.push({ source: c.parent, target: c.id, type: "parent" });
+    }
+    if (c.workspace) {
+      if (!byParent[c.workspace]) byParent[c.workspace] = [];
+      byParent[c.workspace].push(c.id);
+    }
+  }
+  // Within each workspace, link first cell to next (chain)
+  for (const ws in byParent) {
+    const cs = byParent[ws];
+    for (let i = 0; i < cs.length - 1; i++) {
+      e.push({ source: cs[i], target: cs[i+1], type: "workspace" });
+    }
+  }
+  return e;
+}
+
+function renderStats(data) {
+  const wsHTML = Object.entries(data.workspaces || {}).slice(0, 4).map(([k,v]) =>
+    '<div class="stat"><strong>'+v+'</strong> '+esc(k)+'</div>'
+  ).join('');
+  document.getElementById("stats").innerHTML =
+    '<div class="stat"><strong>'+data.cell_count+'</strong> cells</div>' +
+    '<div class="stat"><strong>'+(data.workspace_count||1)+'</strong> workspaces</div>' +
+    wsHTML;
+  document.getElementById("cellTotal").textContent = data.cell_count;
+}
+
+function renderLegend() {
+  const colors = {
+    "advisor": "#58a6ff", "ensemble": "#d2a8ff", "polyformal": "#7ee787",
+    "shaper": "#f78166", "test": "#8b949e", "test-runner": "#a5a5ff",
+    "cell-router": "#ffa657", "default": "#c9d1d9",
+  };
+  document.getElementById("legend").innerHTML = Object.entries(colors).map(([k,c]) =>
+    '<div class="legend-item"><div class="legend-dot" style="background:'+c+'"></div><span>'+k+'</span></div>'
+  ).join('');
+}
+
+function renderSidebar(data) {
+  const list = document.getElementById("cellList");
+  list.innerHTML = '<div class="loading">Loading…</div>';
+  fetch(A2A_URL + "/visual/graph.json").then(r=>r.json()).then(d => {
+    const cards = (d.cells || []).slice(0, 50).map(c => {
+      const caps = (c.capabilities || []).slice(0, 3).map(x =>
+        '<span class="cap">'+esc(x)+'</span>').join(' ');
+      return '<div class="cell-card">' +
+        '<h3>'+esc(c.id)+'</h3>' +
+        '<div class="role">'+esc(c.role||'?')+'</div>' +
+        '<div class="meta">workspace: '+esc(c.workspace||'(default)')+'</div>' +
+        '<div class="caps">'+caps+'</div>' +
+        '</div>';
+    }).join('');
+    list.innerHTML = cards || '<div class="loading">No cells yet — register one!</div>';
+  }).catch(e => {
+    list.innerHTML = '<div class="loading">'+e.message+'</div>';
+  });
+}
+
+function esc(s) {
+  const div = document.createElement("div");
+  div.textContent = s || '';
+  return div.innerHTML;
+}
+
+function colorFor(role) {
+  return ({advisor:'#58a6ff', ensemble:'#d2a8ff', polyformal:'#7ee787',
+    shaper:'#f78166', test:'#8b949e', 'test-runner':'#a5a5ff',
+    'cell-router':'#ffa657'})[role] || '#c9d1d9';
+}
+
+function layoutGraph() {
+  const W = svg.clientWidth, H = svg.clientHeight;
+  pos.clear(); vel.clear();
+  for (const n of nodes) {
+    pos.set(n.id, { x: W/2 + (Math.random()-0.5)*400, y: H/2 + (Math.random()-0.5)*400 });
+    vel.set(n.id, { x: 0, y: 0 });
+  }
+  alpha = 1;
+}
+
+function drawGraph() {
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  // Draw edges first (behind nodes)
+  for (const e of edges) {
+    const pa = pos.get(e.source), pb = pos.get(e.target);
+    if (!pa || !pb) continue;
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', pa.x); line.setAttribute('y1', pa.y);
+    line.setAttribute('x2', pb.x); line.setAttribute('y2', pb.y);
+    line.setAttribute('stroke', e.type === 'parent' ? '#58a6ff' : '#30363d');
+    line.setAttribute('stroke-width', e.type === 'parent' ? '1.5' : '1');
+    line.setAttribute('opacity', e.type === 'parent' ? '0.6' : '0.3');
+    if (e.type === 'parent') line.setAttribute('stroke-dasharray', '3,3');
+    svg.appendChild(line);
+  }
+  for (const n of nodes) {
+    const p = pos.get(n.id);
+    if (!p) continue;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'node');
+    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('r', '8');
+    c.setAttribute('fill', colorFor(n.role));
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('dy', '-12');
+    t.setAttribute('text-anchor', 'middle');
+    t.textContent = n.id.length > 14 ? n.id.slice(-14) : n.id;
+    g.appendChild(c); g.appendChild(t);
+    g.setAttribute('transform', 'translate('+p.x+','+p.y+')');
+    g.onmouseenter = (e) => {
+      const tip = document.getElementById("tip");
+      tip.innerHTML = '<h3>'+esc(n.id)+'</h3>' +
+        '<div>role: <strong>'+esc(n.role)+'</strong></div>' +
+        '<div>workspace: '+esc(n.workspace||'(default)')+'</div>' +
+        '<div class="caps">'+(n.capabilities||[]).map(x =>
+          '<span class="cap">'+esc(x)+'</span>').join('')+'</div>';
+      tip.style.display = 'block';
+      tip.style.left = (e.pageX + 12) + 'px';
+      tip.style.top = (e.pageY + 12) + 'px';
+    };
+    g.onmouseleave = () => {
+      document.getElementById("tip").style.display = 'none';
+    };
+    svg.appendChild(g);
+  }
+}
+
+function tick() {
+  if (alpha < 0.005) return;
+  const W = svg.clientWidth, H = svg.clientHeight;
+  const ids = [...pos.keys()];
+  // Repulsion
+  for (let a = 0; a < ids.length; a++) {
+    for (let b = a+1; b < ids.length; b++) {
+      const pa = pos.get(ids[a]), pb = pos.get(ids[b]);
+      const dx = pb.x - pa.x, dy = pb.y - pa.y;
+      const d2 = Math.max(30, dx*dx + dy*dy);
+      const f = 600 / d2;
+      const nx = dx / Math.sqrt(d2), ny = dy / Math.sqrt(d2);
+      vel.get(ids[a]).x += nx*f; vel.get(ids[a]).y += ny*f;
+      vel.get(ids[b]).x -= nx*f; vel.get(ids[b]).y -= ny*f;
+    }
+  }
+  // Springs
+  for (const e of edges) {
+    const pa = pos.get(e.source), pb = pos.get(e.target);
+    if (!pa || !pb) continue;
+    const dx = pb.x - pa.x, dy = pb.y - pa.y;
+    const d = Math.sqrt(dx*dx + dy*dy);
+    const f = (d - 100) * 0.04;
+    vel.get(e.source).x += dx/d * f; vel.get(e.source).y += dy/d * f;
+    vel.get(e.target).x -= dx/d * f; vel.get(e.target).y -= dy/d * f;
+  }
+  // Update
+  for (const id of ids) {
+    const p = pos.get(id), v = vel.get(id);
+    v.x = (v.x + (W/2 - p.x) * 0.005) * 0.85;
+    v.y = (v.y + (H/2 - p.y) * 0.005) * 0.85;
+    p.x += v.x; p.y += v.y;
+  }
+  alpha *= 0.99;
+  drawGraph();
+  requestAnimationFrame(tick);
+}
+
+svg = document.getElementById('graph');
+init().then(() => requestAnimationFrame(tick));
+setInterval(init, 30000);
+</script>
+</body>
+</html>`;
 
 export default {
   async fetch(request, env, ctx) {
@@ -39,8 +312,42 @@ export default {
             "/find", "/find-semantic", "/tick", "/embed-cell", "/broadcast-cap",
             "/heritage", "/mitosis",
             // v3 additions:
-            "/broadcast-edit", "/peers/near", "/workspaces"
+            "/broadcast-edit", "/peers/near", "/workspaces",
+            "/visual", "/visual/graph.json"
           ],
+        }, cors);
+      }
+
+      // ── v3: public visualization ──────────────────────────────────
+      if (path === "/visual" && method === "GET") {
+        return new Response(VISUAL_HTML, {
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "public, max-age=60",
+            ...cors,
+          },
+        });
+      }
+
+      if (path === "/visual/graph.json" && method === "GET") {
+        // Compact JSON of cells + edges for embedding in dashboards
+        const cells = Object.values(state.cells).map(c => ({
+          id: c.cell_id, role: c.role, workspace: c.workspace || null,
+          capabilities: c.capabilities || [],
+          parent: c.parent_id || null,
+        }));
+        const workspaces = Object.keys(state.cells).reduce((acc, id) => {
+          const ws = state.cells[id].workspace || "(default)";
+          acc[ws] = (acc[ws] || 0) + 1;
+          return acc;
+        }, {});
+        return json({
+          ok: true,
+          cell_count: cells.length,
+          workspace_count: Object.keys(workspaces).length,
+          workspaces,
+          cells,
+          generated_at: Date.now(),
         }, cors);
       }
 

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>rune-quilt — Public Cell Graph</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    margin: 0; padding: 0; background: #0a0e14; color: #c9d1d9;
+    min-height: 100vh;
+  }
+  .header {
+    padding: 24px 40px; background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
+    border-bottom: 1px solid #30363d;
+  }
+  .header h1 {
+    margin: 0 0 8px; font-size: 28px; font-weight: 600;
+    color: #f0f6fc; letter-spacing: -0.02em;
+  }
+  .header .meta {
+    color: #8b949e; font-size: 14px;
+  }
+  .header .meta a { color: #58a6ff; text-decoration: none; }
+  .header .meta a:hover { text-decoration: underline; }
+  .stats {
+    display: flex; gap: 16px; margin-top: 16px; flex-wrap: wrap;
+  }
+  .stat {
+    background: rgba(177,186,196,0.1); border: 1px solid #30363d;
+    padding: 8px 16px; border-radius: 20px; font-size: 14px;
+  }
+  .stat strong { color: #58a6ff; font-weight: 600; font-size: 16px; }
+  .legend {
+    padding: 12px 40px; background: #161b22; border-bottom: 1px solid #30363d;
+    display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 14px; height: 14px; border-radius: 50%; }
+  .layout { display: grid; grid-template-columns: 1fr 380px; gap: 0; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .graph-container {
+    height: calc(100vh - 220px); position: relative;
+    background: radial-gradient(ellipse at center, #0d1117 0%, #010409 100%);
+    min-height: 500px;
+  }
+  svg { width: 100%; height: 100%; cursor: grab; }
+  svg:active { cursor: grabbing; }
+  .node circle { stroke: #30363d; stroke-width: 1.5; transition: all 0.2s; }
+  .node:hover circle { stroke: #58a6ff; stroke-width: 2.5; }
+  .node text {
+    fill: #c9d1d9; font-size: 10px; font-family: monospace;
+    pointer-events: none;
+  }
+  .edge { stroke: #30363d; stroke-width: 1; opacity: 0.4; }
+  .tooltip {
+    position: absolute; background: #161b22; border: 1px solid #58a6ff;
+    padding: 12px 16px; border-radius: 6px; pointer-events: none;
+    font-size: 13px; max-width: 360px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    display: none; z-index: 10;
+  }
+  .tooltip h3 { margin: 0 0 8px; color: #58a6ff; font-size: 15px; }
+  .tooltip .caps { color: #8b949e; margin-top: 8px; }
+  .tooltip .cap {
+    display: inline-block; background: rgba(88,166,255,0.15);
+    color: #58a6ff; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; margin: 2px;
+  }
+  .sidebar {
+    height: calc(100vh - 220px); overflow-y: auto;
+    background: #0d1117; border-left: 1px solid #30363d;
+    min-height: 500px;
+  }
+  .sidebar h2 {
+    margin: 0; padding: 16px 20px; font-size: 14px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    color: #8b949e; border-bottom: 1px solid #30363d;
+    position: sticky; top: 0; background: #0d1117; z-index: 5;
+  }
+  .cell-card {
+    padding: 14px 20px; border-bottom: 1px solid #21262d;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .cell-card:hover { background: #161b22; }
+  .cell-card h3 {
+    margin: 0 0 4px; font-size: 13px; color: #f0f6fc;
+    font-family: monospace;
+  }
+  .cell-card .role {
+    font-size: 11px; color: #58a6ff; text-transform: uppercase;
+    letter-spacing: 0.04em; margin-bottom: 6px;
+  }
+  .cell-card .meta {
+    font-size: 11px; color: #8b949e;
+  }
+  .loading {
+    display: flex; align-items: center; justify-content: center;
+    height: 200px; color: #8b949e;
+  }
+  .footer {
+    padding: 16px 40px; background: #0d1117;
+    border-top: 1px solid #30363d;
+    text-align: center; font-size: 12px; color: #8b949e;
+  }
+  .footer a { color: #58a6ff; text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>rune-quilt — Public Cell Graph</h1>
+  <div class="meta">
+    Live cell fleet · a2a v3 Worker ·
+    <a href="https://a2a-v3.superinstance.dev/" target="_blank">a2a-v3.superinstance.dev</a> ·
+    Updated <span id="updated">—</span>
+  </div>
+  <div class="stats" id="stats">
+    <div class="stat">Loading fleet…</div>
+  </div>
+</div>
+<div class="legend" id="legend"></div>
+<div class="layout">
+  <div class="graph-container">
+    <svg id="graph"></svg>
+    <div class="tooltip" id="tip"></div>
+  </div>
+  <div class="sidebar">
+    <h2>Cells</h2>
+    <div id="cellList" class="loading">Loading…</div>
+  </div>
+</div>
+<div class="footer">
+  Built by <a href="https://github.com/SuperInstance/rune-quilt" target="_blank">rune-quilt</a> ·
+  Each cell is a merkle-rooted witness log on the edge ·
+  Powered by Cloudflare Workers + Vectorize
+</div>
+
+<script>
+const A2A_URL = "https://a2a-v3.superinstance.dev";
+let nodes = new Map();
+let edges = [];
+let stats = {};
+
+async function init() {
+  try {
+    // Fetch workspaces + cells in parallel
+    const [workspaces, fleetInfo] = await Promise.all([
+      fetch(A2A_URL + "/workspaces").then(r => r.json()),
+      fetch(A2A_URL + "/").then(r => r.json()),
+    ]);
+
+    // Get all cells via /peers/near per workspace, or just list all known cells
+    // Since we don't have a /cells endpoint exposed (only /broadcast etc), let's
+    // infer from the workspaces and the registered cells we know about.
+    // For demo purposes, use the count from fleetInfo.
+    stats = {
+      cell_count: fleetInfo.cells || 0,
+      workspace_count: workspaces.workspace_count || 0,
+      workspaces: workspaces.workspaces || [],
+      messages_pending: fleetInfo.messages_pending || 0,
+    };
+    renderStats();
+    renderLegend();
+    document.getElementById("updated").textContent = new Date().toLocaleTimeString();
+    document.getElementById("cellList").innerHTML =
+      '<div class="loading">Live cell data — see GitHub for the registered cells list.</div>';
+  } catch (e) {
+    document.getElementById("cellList").innerHTML =
+      '<div class="loading">Failed to load fleet: ' + e.message + '</div>';
+  }
+}
+
+function renderStats() {
+  document.getElementById("stats").innerHTML =
+    `<div class="stat"><strong>${stats.cell_count}</strong> cells</div>` +
+    `<div class="stat"><strong>${stats.workspace_count}</strong> workspaces</div>` +
+    `<div class="stat"><strong>${stats.messages_pending}</strong> pending messages</div>` +
+    stats.workspaces.slice(0, 3).map(w =>
+      `<div class="stat"><strong>${w.count}</strong> ${escapeHtml(w.name)}</div>`
+    ).join("");
+}
+
+function renderLegend() {
+  const colors = {
+    "advisor": "#58a6ff",
+    "ensemble": "#d2a8ff",
+    "polyformal": "#7ee787",
+    "shaper": "#f78166",
+    "test": "#8b949e",
+    "test-runner": "#a5a5ff",
+    "cell-router": "#ffa657",
+    "default": "#c9d1d9",
+  };
+  document.getElementById("legend").innerHTML = Object.entries(colors)
+    .map(([k, c]) =>
+      `<div class="legend-item"><div class="legend-dot" style="background:${c}"></div><span>${k}</span></div>`
+    ).join("");
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+// Auto-refresh every 30 seconds
+init();
+setInterval(init, 30000);
+</script>
+</body>
+</html>
