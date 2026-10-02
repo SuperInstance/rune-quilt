@@ -560,6 +560,23 @@ export default {
           "canon-as-island": ["allopatry", "canon drift", "island biogeography", "isthmus",
             "bridge essay", "two islands"],
           "the-cell": ["cell-as-boat", "witness log", "merkle root", "cell router", "fleet as fishing"],
+          "spreadsheet": ["spreadsheet", "cellfish", "spreadsheet was always", "ternary",
+            "smpbot", "seed model prompt", "value cell", "agent cell"],
+          "fleet-radio": ["predictor line", "space between the knots", "impact of the knee",
+            "tangle and the iron", "friction of the real", "patch and the rust",
+            "empty room", "speciation of the monolith", "dehooker", "cathedral",
+            "incubation paradigm", "double-entry", "temporal carrier wave", "negative space",
+            "dehooker axiom", "high-bandwidth silence", "scars", "vestige", "hatching"],
+          "architecture-and-time": ["predictor line", "temporal carrier wave", "incubation paradigm",
+            "double-entry", "dehooker", "negative space", "t-minus"],
+          "edge-mechanics": ["impact of the knee", "dehooker", "wire", "twelve milliseconds",
+            "scars", "anisotropic grain"],
+          "hardware-brutalism": ["tangle and the iron", "salt", "terminal", "salt crust",
+            "voltage drop", "watchdog timer", "ugly exception handler"],
+          "imperfection-truth": ["friction of the real", "patch and the rust", "cathedral",
+            "scaffold", "scars", "salt ring"],
+          "latent-space": ["empty room", "latent space", "incubator", "shell cracking",
+            "yolk", "tensor field uncollapsed"],
         };
         const kws = themes[theme] || theme.split(/[\s,]+/);
         const keys = await env.CELL_WITNESS_KV.list({ prefix: "canon:meta:" });
